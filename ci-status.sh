@@ -106,6 +106,10 @@ rows=$(
 statuses_found=0
 all_success=1
 while IFS=$'\t' read -r status conclusion name details_url started_at completed_at; do
+    if [[ "$status" == "" ]]; then
+        continue
+    fi
+
     statuses_found=1
     if [[ "$conclusion" != "success" && "$conclusion" != "skipped" ]]; then
         all_success=0
