@@ -134,8 +134,8 @@ while IFS=$'\t' read -r status conclusion name details_url started_at completed_
         fi
     fi
 
-    printf "%s  %-60s ${CYAN}%4s %3s${RESET}  ${GREY}%s${RESET} ${BLACK}%s %s${RESET}\n" \
-        "$build_icon" "$name" "$first_duration" "$second_duration" "$details_url" "$status" "$conclusion"
+    printf "%s  %-60s ${CYAN}%4s %3s${RESET}  ${GREY}%s${RESET}\n" \
+        "$build_icon" "$name" "$first_duration" "$second_duration" "$details_url"
 done <<< "$rows"
 
 if [[ $statuses_found -eq 0 ]]; then
