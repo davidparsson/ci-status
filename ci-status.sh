@@ -139,7 +139,7 @@ while IFS=$'\t' read -r status conclusion name details_url started_at completed_
 done <<< "$rows"
 
 if [[ $statuses_found -eq 0 ]]; then
-    echo "${GREY}No check runs${RESET}"
+    echo "${GREY}No status${RESET}"
     exit 1
 elif [[ $all_success -eq 0 ]]; then
     exit 1
