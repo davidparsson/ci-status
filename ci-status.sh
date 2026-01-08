@@ -47,8 +47,8 @@ RAW_JSON=$(gh api --paginate "$API_PATH" -H "Accept: application/vnd.github+json
 if [[ $(echo "$RAW_JSON" | jq -r '.status') == "422" ]]; then
     UPSTREAM_COMMIT=$(git rev-parse --verify @{u} 2> /dev/null)
     if [[ -z "$UPSTREAM_COMMIT" ]]; then
-        echo "${GREY}Found no commit with check runs${RESET}"
-        exit 0
+        echo "${GREY}No status${RESET}"
+        exit 1
     fi
     API_PATH="/repos/${REPO}/commits/${UPSTREAM_COMMIT}/check-runs"
     RAW_JSON=$(gh api --paginate "$API_PATH" -H "Accept: application/vnd.github+json" 2> /dev/null)
