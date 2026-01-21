@@ -56,10 +56,10 @@ fi
 
 icon_for_conclusion() {
     case "$1" in
-        success) echo "${GREEN}✔︎️${RESET}" ;;
+        success) echo "${GREEN}✔︎${RESET}" ;;
         failure) echo "${RED}✖︎${RESET}" ;;
         cancelled) echo "${GREY}✖︎${RESET}" ;;
-        neutral) echo "${BLUE}✔︎️${RESET}" ;;
+        neutral) echo "${BLUE}✔︎${RESET}" ;;
         timed_out) echo "${YELLOW}✖︎${RESET}" ;;
         action_required) echo "${YELLOW}⚠${RESET}" ;;
         skipped) echo "${GREY}—${RESET}" ;;
