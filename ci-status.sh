@@ -103,6 +103,7 @@ rows=$(
     ' <<< "$RAW_JSON"
 )
 
+terminal_width="$(stty size 2>/dev/null | cut -d' ' -f2)"
 statuses_found=0
 all_success=1
 while IFS=$'\t' read -r status conclusion name details_url started_at completed_at; do
@@ -134,7 +135,13 @@ while IFS=$'\t' read -r status conclusion name details_url started_at completed_
         fi
     fi
 
-    printf "%s  %-60s ${CYAN}%4s %3s${RESET}  ${GREY}%s${RESET}\n" \
+    # visible prefix: 1 (icon) + 2 + 60 (name) + 4+1+3 (duration) + 2 (space) = 73
+    if (( 73 + ${#details_url} > terminal_width )); then
+        url_separator="\n   "
+    else
+        url_separator="  "
+    fi
+    printf "%s  %-60s ${CYAN}%4s %3s${RESET}${url_separator}${GREY}%s${RESET}\n" \
         "$build_icon" "$name" "$first_duration" "$second_duration" "$details_url"
 done <<< "$rows"
 
