@@ -21,12 +21,10 @@ if [[ -z "$REPO" ]]; then
 fi
 
 COMMIT=${1:-}
+COMMIT=$(git rev-parse --verify ${COMMIT:-HEAD} 2>/dev/null)
 if [[ -z "$COMMIT" ]]; then
-  if ! command -v git >/dev/null 2>&1; then
-    echo "No commit specified and git not available to detect HEAD." >&2
-    exit 1
-  fi
-  COMMIT=$(git rev-parse --verify HEAD)
+  echo "No commit specified or detected." >&2
+  exit 1
 fi
 
 RESET=$'\033[0m'
