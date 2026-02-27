@@ -20,11 +20,21 @@ if [[ -z "$REPO" ]]; then
     exit 1
 fi
 
-COMMIT=${1:-}
-COMMIT=$(git rev-parse --verify ${COMMIT:-HEAD} 2>/dev/null)
+GIT_REF_ARGUMENT=${1:-}
+COMMIT=$(git rev-parse --verify ${GIT_REF_ARGUMENT:-HEAD} 2>/dev/null)
 if [[ -z "$COMMIT" ]]; then
   echo "No commit specified or detected." >&2
   exit 1
+fi
+
+# If no explicit ref was passed and the commit isn't pushed, use upstream instead
+if [[ -z "$GIT_REF_ARGUMENT" ]]; then
+    UPSTREAM_COMMIT=$(git rev-parse --verify @{u} 2>/dev/null)
+    if [[ -n "$UPSTREAM_COMMIT" && "$COMMIT" != "$UPSTREAM_COMMIT" ]]; then
+        if ! git merge-base --is-ancestor "$COMMIT" "$UPSTREAM_COMMIT" 2>/dev/null; then
+            COMMIT="$UPSTREAM_COMMIT"
+        fi
+    fi
 fi
 
 RESET=$'\033[0m'
@@ -42,15 +52,6 @@ API_PATH="/repos/${REPO}/commits/${COMMIT}/check-runs"
 
 # Call gh api with pagination and collect JSON
 RAW_JSON=$(gh api --paginate "$API_PATH" -H "Accept: application/vnd.github+json" 2> /dev/null)
-if [[ $(echo "$RAW_JSON" | jq -r '.status') == "422" ]]; then
-    UPSTREAM_COMMIT=$(git rev-parse --verify @{u} 2> /dev/null)
-    if [[ -z "$UPSTREAM_COMMIT" ]]; then
-        echo "${GREY}No status${RESET}"
-        exit 1
-    fi
-    API_PATH="/repos/${REPO}/commits/${UPSTREAM_COMMIT}/check-runs"
-    RAW_JSON=$(gh api --paginate "$API_PATH" -H "Accept: application/vnd.github+json" 2> /dev/null)
-fi
 
 icon_for_conclusion() {
     case "$1" in
@@ -76,7 +77,7 @@ build_icon(){
 
 rows=$(
     jq -r '
-        .check_runs
+        (.check_runs // [])
         | sort_by(.name) | sort_by(
             .conclusion
             | (
