@@ -82,12 +82,12 @@ rows=$(
             | (
                 if . == "success" then 1
                 elif . == "neutral" then 2
-                elif . == "skipped" then 3
-                elif . == "cancelled" then 4
-                elif . == "timed_out" then 5
-                elif . == "failure" then 6
-                elif . == "action_required" then 7
-                else 8 end
+                elif . == "skipped" then 4
+                elif . == "cancelled" then 5
+                elif . == "timed_out" then 6
+                elif . == "failure" then 7
+                elif . == "action_required" then 8
+                else 3 end
             )
         ) []
         | [
