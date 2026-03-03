@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
-if [[ "$1" == "--watch" || "$1" == "-w" ]]; then
-    watch --color "$0"
+WATCH=0
+REVERSE=0
+GIT_REF_ARGUMENT=""
+for arg in "$@"; do
+    case "$arg" in
+        --watch|-w) WATCH=1 ;;
+        --reverse|-r) REVERSE=1 ;;
+        *) GIT_REF_ARGUMENT="$arg" ;;
+    esac
+done
+
+if [[ $WATCH -eq 1 ]]; then
+    WATCH_ARGS=("-r")
+    [[ -n "$GIT_REF_ARGUMENT" ]] && WATCH_ARGS+=("$GIT_REF_ARGUMENT")
+    watch --color "$0" "${WATCH_ARGS[@]}"
     exit 0
 fi
 
@@ -20,7 +33,6 @@ if [[ -z "$REPO" ]]; then
     exit 1
 fi
 
-GIT_REF_ARGUMENT=${1:-}
 COMMIT=$(git rev-parse --verify ${GIT_REF_ARGUMENT:-HEAD} 2>/dev/null)
 if [[ -z "$COMMIT" ]]; then
   echo "No commit specified or detected." >&2
@@ -75,8 +87,13 @@ build_icon(){
     esac
 }
 
+SORT_ORDER="ascending"
+if [[ $REVERSE -eq 1 ]]; then
+    SORT_ORDER="descending"
+fi
+
 rows=$(
-    jq -r '
+    jq -r --arg order "$SORT_ORDER" '
         (.check_runs // [])
         | sort_by(.name) | sort_by(
             .conclusion
@@ -90,7 +107,7 @@ rows=$(
                 elif . == "action_required" then 8
                 else 3 end
             )
-        ) []
+        ) | if $order == "descending" then reverse else . end | .[]
         | [
             (.status // "unknown"),
             (.conclusion // "pending"),
