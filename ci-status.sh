@@ -93,8 +93,8 @@ if [[ $REVERSE -eq 1 ]]; then
 fi
 
 rows=$(
-    jq -r --arg order "$SORT_ORDER" '
-        (.check_runs // [])
+    jq -r --slurp --arg order "$SORT_ORDER" '
+        [.[].check_runs // [] | .[]]
         | sort_by(.name) | sort_by(
             .conclusion
             | (
