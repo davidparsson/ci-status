@@ -63,7 +63,7 @@ BOLD=$'\033[1m'
 API_PATH="/repos/${REPO}/commits/${COMMIT}/check-runs"
 
 # Call gh api with pagination and collect JSON
-RAW_JSON=$(gh api --paginate "$API_PATH" -H "Accept: application/vnd.github+json" 2> /dev/null)
+RAW_JSON=$(gh api --paginate "$API_PATH?per_page=100" -H "Accept: application/vnd.github+json" 2> /dev/null)
 
 icon_for_conclusion() {
     case "$1" in
