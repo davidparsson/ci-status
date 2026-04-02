@@ -58,6 +58,7 @@ GREY=$'\033[0;30m'
 CYAN=$'\033[0;36m'
 MAGENTA=$'\033[0;35m'
 BLACK=$'\033[0;90m'
+LIGHT_BLACK=$'\033[0;90m'
 BOLD=$'\033[1m'
 
 API_PATH="/repos/${REPO}/commits/${COMMIT}/check-runs"
@@ -69,11 +70,11 @@ icon_for_conclusion() {
     case "$1" in
         success) echo "${GREEN}✔︎${RESET}" ;;
         failure) echo "${RED}✖︎${RESET}" ;;
-        cancelled) echo "${GREY}✖︎${RESET}" ;;
+        cancelled) echo "${LIGHT_BLACK}✖︎${RESET}" ;;
         neutral) echo "${BLUE}✔︎${RESET}" ;;
         timed_out) echo "${YELLOW}✖︎${RESET}" ;;
         action_required) echo "${YELLOW}⚠${RESET}" ;;
-        skipped) echo "${GREY}—${RESET}" ;;
+        skipped) echo "${LIGHT_BLACK}—${RESET}" ;;
         *) echo "${YELLOW}—${RESET}" ;;
     esac
 }
@@ -157,7 +158,7 @@ while IFS=$'\t' read -r status conclusion name details_url started_at completed_
     else
         url_separator="  "
     fi
-    printf "%s  %-60s ${CYAN}%4s %3s${RESET}${url_separator}${GREY}%s${RESET}\n" \
+    printf "%s  %-60s ${CYAN}%4s %3s${RESET}${url_separator}${LIGHT_BLACK}%s${RESET}\n" \
         "$build_icon" "$name" "$first_duration" "$second_duration" "$details_url"
 done <<< "$rows"
 
