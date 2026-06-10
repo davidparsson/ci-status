@@ -44,7 +44,7 @@ def icon_for_conclusion(conclusion):
     return {
         "success": f"{GREEN}✔︎{RESET}",
         "failure": f"{RED}✖︎{RESET}",
-        "cancelled": f"{GREY}✖︎{RESET}",
+        "cancelled": f"{YELLOW}✖︎{RESET}",
         "neutral": f"{BLUE}✔︎{RESET}",
         "timed_out": f"{YELLOW}✖︎{RESET}",
         "action_required": f"{YELLOW}⚠{RESET}",

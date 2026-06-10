@@ -70,7 +70,7 @@ icon_for_conclusion() {
     case "$1" in
         success) echo "${GREEN}✔︎${RESET}" ;;
         failure) echo "${RED}✖︎${RESET}" ;;
-        cancelled) echo "${LIGHT_BLACK}✖︎${RESET}" ;;
+        cancelled) echo "${YELLOW}✖︎${RESET}" ;;
         neutral) echo "${BLUE}✔︎${RESET}" ;;
         timed_out) echo "${YELLOW}✖︎${RESET}" ;;
         action_required) echo "${YELLOW}⚠${RESET}" ;;
