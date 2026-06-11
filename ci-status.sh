@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 WATCH=0
 REVERSE=0
+QUIET=0
 GIT_REF_ARGUMENT=""
 
 usage() {
@@ -13,6 +14,7 @@ upstream tracking commit if the local commit isn't pushed).
 Options:
   -w, --watch     Refresh in place every 5s, exiting once all checks complete
   -r, --reverse   Reverse the sort order
+  -q, --quiet     Print only a one-line summary of the worst check status
   -h, --help      Show this help and exit
 EOF
 }
@@ -21,6 +23,7 @@ for arg in "$@"; do
     case "$arg" in
         --watch|-w) WATCH=1 ;;
         --reverse|-r) REVERSE=1 ;;
+        --quiet|-q) QUIET=1 ;;
         --help|-h) usage; exit 0 ;;
         -*) echo "Unknown option: $arg" >&2; usage >&2; exit 2 ;;
         *) GIT_REF_ARGUMENT="$arg" ;;
@@ -110,21 +113,24 @@ render_once() {
     local rows
     rows=$(
         jq -r --slurp --arg order "$SORT_ORDER" '
-            [.[].check_runs // [] | .[]]
-            | sort_by(.name) | sort_by(
+            # Rank each check best -> worst. Used to sort, and emitted as the
+            # first column so the shell can find the worst status without
+            # re-deriving the priorities.
+            def rank:
                 .conclusion
-                | (
-                    if . == "success" then 1
-                    elif . == "neutral" then 2
-                    elif . == "skipped" then 4
-                    elif . == "cancelled" then 5
-                    elif . == "timed_out" then 6
-                    elif . == "failure" then 7
-                    elif . == "action_required" then 8
-                    else 3 end
-                )
-            ) | if $order == "descending" then reverse else . end | .[]
+                | (if . == "success" then 1
+                   elif . == "neutral" then 2
+                   elif . == "skipped" then 4
+                   elif . == "cancelled" then 5
+                   elif . == "timed_out" then 6
+                   elif . == "failure" then 7
+                   elif . == "action_required" then 8
+                   else 3 end);
+            [.[].check_runs // [] | .[]]
+            | sort_by(.name) | sort_by(rank)
+            | if $order == "descending" then reverse else . end | .[]
             | [
+                rank,
                 (.status // "unknown"),
                 (.conclusion // "pending"),
                 (.name // "-"),
@@ -135,13 +141,15 @@ render_once() {
         ' <<< "$RAW_JSON"
     )
 
-    local terminal_width status conclusion name details_url started_at completed_at
+    local rank terminal_width status conclusion name details_url started_at completed_at
     local icon first_duration second_duration url_separator total_seconds seconds minutes
+    local total_count=0 r count label
+    local -a seen_ranks=() count_by_rank=() status_by_rank=() concl_by_rank=()
     terminal_width="$(stty size 2>/dev/null | cut -d' ' -f2)"
     statuses_found=0
     all_success=1
     all_completed=1
-    while IFS=$'\t' read -r status conclusion name details_url started_at completed_at; do
+    while IFS=$'\t' read -r rank status conclusion name details_url started_at completed_at; do
         if [[ "$status" == "" ]]; then
             continue
         fi
@@ -153,6 +161,19 @@ render_once() {
         if [[ "$status" != "completed" ]]; then
             all_completed=0
         fi
+
+        # Tally each status by the rank jq emitted, recording ranks in the order
+        # they first appear (already best -> worst, or reversed with -r) plus a
+        # representative status/conclusion per rank for the --quiet summary.
+        total_count=$((total_count + 1))
+        (( ${count_by_rank[$rank]:-0} == 0 )) && seen_ranks+=("$rank")
+        count_by_rank[$rank]=$(( ${count_by_rank[$rank]:-0} + 1 ))
+        status_by_rank[$rank]=$status
+        concl_by_rank[$rank]=$conclusion
+
+        # In quiet mode only the summary line below is printed, not each check.
+        [[ $QUIET -eq 1 ]] && continue
+
         icon=$(build_icon "$status" "$conclusion")
 
         if [ "${#name}" -gt 60 ]; then
@@ -186,6 +207,25 @@ render_once() {
     if [[ $statuses_found -eq 0 ]]; then
         echo "${GREY}No status${RESET}"
         all_completed=0
+    elif [[ $QUIET -eq 1 ]]; then
+        # One summary line per status present, in the order jq emitted them.
+        for r in "${seen_ranks[@]}"; do
+            count=${count_by_rank[$r]}
+            conclusion=${concl_by_rank[$r]}
+            case "$conclusion" in
+                success) label="passed" ;;
+                failure) label="failed" ;;
+                timed_out) label="timed out" ;;
+                action_required) label="action required" ;;
+                *) label="$conclusion" ;;  # neutral / skipped / cancelled / pending / ...
+            esac
+            icon=$(build_icon "${status_by_rank[$r]}" "$conclusion")
+            if (( count == total_count )); then
+                printf "%s  All %d checks %s\n" "$icon" "$total_count" "$label"
+            else
+                printf "%s  %d of %d checks %s\n" "$icon" "$count" "$total_count" "$label"
+            fi
+        done
     fi
 }
 
