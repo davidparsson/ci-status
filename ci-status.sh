@@ -10,13 +10,6 @@ for arg in "$@"; do
     esac
 done
 
-if [[ $WATCH -eq 1 ]]; then
-    WATCH_ARGS=("-r")
-    [[ -n "$GIT_REF_ARGUMENT" ]] && WATCH_ARGS+=("$GIT_REF_ARGUMENT")
-    watch --color "$0" "${WATCH_ARGS[@]}"
-    exit 0
-fi
-
 if ! command -v gh >/dev/null 2>&1; then
   echo "gh (GitHub CLI) is required. Install from https://cli.github.com/" >&2
   exit 1
@@ -63,9 +56,6 @@ BOLD=$'\033[1m'
 
 API_PATH="/repos/${REPO}/commits/${COMMIT}/check-runs"
 
-# Call gh api with pagination and collect JSON
-RAW_JSON=$(gh api --paginate "$API_PATH?per_page=100" -H "Accept: application/vnd.github+json" 2> /dev/null)
-
 icon_for_conclusion() {
     case "$1" in
         success) echo "${GREEN}✔︎${RESET}" ;;
@@ -93,79 +83,111 @@ if [[ $REVERSE -eq 1 ]]; then
     SORT_ORDER="descending"
 fi
 
-rows=$(
-    jq -r --slurp --arg order "$SORT_ORDER" '
-        [.[].check_runs // [] | .[]]
-        | sort_by(.name) | sort_by(
-            .conclusion
-            | (
-                if . == "success" then 1
-                elif . == "neutral" then 2
-                elif . == "skipped" then 4
-                elif . == "cancelled" then 5
-                elif . == "timed_out" then 6
-                elif . == "failure" then 7
-                elif . == "action_required" then 8
-                else 3 end
-            )
-        ) | if $order == "descending" then reverse else . end | .[]
-        | [
-            (.status // "unknown"),
-            (.conclusion // "pending"),
-            (.name // "-"),
-            (.details_url // "-"),
-            (.started_at | if (. != null) then strptime("%Y-%m-%dT%H:%M:%SZ") | mktime else null end),
-            (.completed_at | if (. != null) then strptime("%Y-%m-%dT%H:%M:%SZ") | mktime else null end)
-          ] | @tsv
-    ' <<< "$RAW_JSON"
-)
+# Fetch check-runs and render one frame. Sets the globals statuses_found,
+# all_success and all_completed for the caller to inspect.
+render_once() {
+    # Call gh api with pagination and collect JSON
+    local RAW_JSON
+    RAW_JSON=$(gh api --paginate "$API_PATH?per_page=100" -H "Accept: application/vnd.github+json" 2> /dev/null)
 
-terminal_width="$(stty size 2>/dev/null | cut -d' ' -f2)"
-statuses_found=0
-all_success=1
-while IFS=$'\t' read -r status conclusion name details_url started_at completed_at; do
-    if [[ "$status" == "" ]]; then
-        continue
-    fi
+    local rows
+    rows=$(
+        jq -r --slurp --arg order "$SORT_ORDER" '
+            [.[].check_runs // [] | .[]]
+            | sort_by(.name) | sort_by(
+                .conclusion
+                | (
+                    if . == "success" then 1
+                    elif . == "neutral" then 2
+                    elif . == "skipped" then 4
+                    elif . == "cancelled" then 5
+                    elif . == "timed_out" then 6
+                    elif . == "failure" then 7
+                    elif . == "action_required" then 8
+                    else 3 end
+                )
+            ) | if $order == "descending" then reverse else . end | .[]
+            | [
+                (.status // "unknown"),
+                (.conclusion // "pending"),
+                (.name // "-"),
+                (.details_url // "-"),
+                (.started_at | if (. != null) then strptime("%Y-%m-%dT%H:%M:%SZ") | mktime else null end),
+                (.completed_at | if (. != null) then strptime("%Y-%m-%dT%H:%M:%SZ") | mktime else null end)
+              ] | @tsv
+        ' <<< "$RAW_JSON"
+    )
 
-    statuses_found=1
-    if [[ "$conclusion" != "success" && "$conclusion" != "skipped" ]]; then
-        all_success=0
-    fi
-    build_icon=$(build_icon "$status" "$conclusion")
-
-    if [ "${#name}" -gt 60 ]; then
-        name="${name:0:57}..."
-    fi
-
-    first_duration=""
-    second_duration=""
-    if [[ "$conclusion" != "skipped" && -n "$started_at" && -n "$completed_at" ]]; then
-        total_seconds=$((completed_at - started_at))
-
-        seconds=$((total_seconds % 60))
-        second_duration="${seconds}s"
-
-        if ((total_seconds >= 60)); then
-            minutes=$((total_seconds / 60))
-            first_duration="${minutes}m"
+    local terminal_width status conclusion name details_url started_at completed_at
+    local icon first_duration second_duration url_separator total_seconds seconds minutes
+    terminal_width="$(stty size 2>/dev/null | cut -d' ' -f2)"
+    statuses_found=0
+    all_success=1
+    all_completed=1
+    while IFS=$'\t' read -r status conclusion name details_url started_at completed_at; do
+        if [[ "$status" == "" ]]; then
+            continue
         fi
-    fi
 
-    # visible prefix: 1 (icon) + 2 + 60 (name) + 4+1+3 (duration) + 2 (space) = 73
-    if (( 73 + ${#details_url} > terminal_width )); then
-        url_separator="\n   "
-    else
-        url_separator="  "
-    fi
-    printf "%s  %-60s ${CYAN}%4s %3s${RESET}${url_separator}${LIGHT_BLACK}%s${RESET}\n" \
-        "$build_icon" "$name" "$first_duration" "$second_duration" "$details_url"
-done <<< "$rows"
+        statuses_found=1
+        if [[ "$conclusion" != "success" && "$conclusion" != "skipped" ]]; then
+            all_success=0
+        fi
+        if [[ "$status" != "completed" ]]; then
+            all_completed=0
+        fi
+        icon=$(build_icon "$status" "$conclusion")
 
-if [[ $statuses_found -eq 0 ]]; then
-    echo "${GREY}No status${RESET}"
-    exit 1
-elif [[ $all_success -eq 0 ]]; then
+        if [ "${#name}" -gt 60 ]; then
+            name="${name:0:57}..."
+        fi
+
+        first_duration=""
+        second_duration=""
+        if [[ "$conclusion" != "skipped" && -n "$started_at" && -n "$completed_at" ]]; then
+            total_seconds=$((completed_at - started_at))
+
+            seconds=$((total_seconds % 60))
+            second_duration="${seconds}s"
+
+            if ((total_seconds >= 60)); then
+                minutes=$((total_seconds / 60))
+                first_duration="${minutes}m"
+            fi
+        fi
+
+        # visible prefix: 1 (icon) + 2 + 60 (name) + 4+1+3 (duration) + 2 (space) = 73
+        if (( 73 + ${#details_url} > terminal_width )); then
+            url_separator="\n   "
+        else
+            url_separator="  "
+        fi
+        printf "%s  %-60s ${CYAN}%4s %3s${RESET}${url_separator}${LIGHT_BLACK}%s${RESET}\n" \
+            "$icon" "$name" "$first_duration" "$second_duration" "$details_url"
+    done <<< "$rows"
+
+    if [[ $statuses_found -eq 0 ]]; then
+        echo "${GREY}No status${RESET}"
+        all_completed=0
+    fi
+}
+
+if [[ $WATCH -eq 1 ]]; then
+    trap 'exit 0' INT
+    while :; do
+        printf '\033[H'         # home cursor; no pre-clear so the screen isn't blank during fetch
+        render_once
+        printf '\033[J'         # erase to end: clears leftover lines from a longer previous frame
+        [[ $all_completed -eq 1 ]] && break
+        sleep 5
+    done
+else
+    render_once
+fi
+
+# Propagate pass/fail. The watch loop only breaks once every check has completed,
+# so this gives the same exit code as a one-shot run.
+if [[ $statuses_found -eq 0 || $all_success -eq 0 ]]; then
     exit 1
 fi
 
