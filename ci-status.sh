@@ -148,6 +148,10 @@ render_once() {
         ' <<< "$RAW_JSON"
     )
 
+    # In watch mode, reposition the cursor only now that the slow fetch is done,
+    # so the previous frame stays put on screen while the query runs.
+    [[ $WATCH -eq 1 ]] && printf '\033[H'
+
     local rank terminal_width status conclusion name details_url started_at completed_at
     local icon first_duration second_duration url_separator total_seconds seconds minutes
     local total_count=0 r count label state
@@ -258,14 +262,15 @@ render_once() {
             fi
         done
     fi
+
+    # Erase from the cursor down to clear leftover lines from a taller prior frame.
+    [[ $WATCH -eq 1 ]] && printf '\033[J'
 }
 
 if [[ $WATCH -eq 1 ]]; then
     trap 'exit 0' INT
     while :; do
-        printf '\033[H'         # home cursor; no pre-clear so the screen isn't blank during fetch
         render_once
-        printf '\033[J'         # erase to end: clears leftover lines from a longer previous frame
         [[ $all_completed -eq 1 ]] && break
         sleep 5
     done
