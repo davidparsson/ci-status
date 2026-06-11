@@ -2,6 +2,7 @@
 WATCH=0
 REVERSE=0
 QUIET=0
+VERBOSE=0
 PORCELAIN=0
 GIT_REF_ARGUMENT=""
 
@@ -12,10 +13,16 @@ Usage: ${0##*/} [options] [git-ref]
 Show GitHub CI check-run statuses for a commit. Defaults to HEAD (or its
 upstream tracking commit if the local commit isn't pushed).
 
+By default, passing checks (success, neutral, skipped, in-progress) are
+collapsed into one summary line each; only checks that need attention
+(cancelled, timed out, failed, action required) are listed in full. Use
+--verbose to list every check, or --quiet for summaries only.
+
 Options:
   -w, --watch      Refresh in place every 5s, exiting once all checks complete
   -r, --reverse    Reverse the sort order
-  -q, --quiet      Print only a one-line summary of the worst check status
+  -v, --verbose    List every check in full (no summarizing)
+  -q, --quiet      Summarize every status into one line each
   -p, --porcelain  Print a single machine-readable state token and exit
   -h, --help       Show this help and exit
 EOF
@@ -25,6 +32,7 @@ for arg in "$@"; do
     case "$arg" in
         --watch|-w) WATCH=1 ;;
         --reverse|-r) REVERSE=1 ;;
+        --verbose|-v) VERBOSE=1 ;;
         --quiet|-q) QUIET=1 ;;
         --porcelain|-p) PORCELAIN=1 ;;
         --help|-h) usage; exit 0 ;;
@@ -104,6 +112,18 @@ build_icon(){
     esac
 }
 
+# Whether checks of the given rank are collapsed into a summary line rather than
+# listed individually. --verbose lists everything; --quiet summarizes everything;
+# the default summarizes the passing modes (success, neutral, building, skipped).
+summarize_rank() {
+    (( VERBOSE == 1 )) && return 1
+    (( QUIET == 1 )) && return 0
+    case "$1" in
+        1|2|3|4) return 0 ;;  # success / neutral / building / skipped
+        *) return 1 ;;
+    esac
+}
+
 SORT_ORDER="ascending"
 if [[ $REVERSE -eq 1 ]]; then
     SORT_ORDER="descending"
@@ -154,7 +174,7 @@ render_once() {
 
     local rank terminal_width status conclusion name details_url started_at completed_at
     local icon first_duration second_duration url_separator total_seconds seconds minutes
-    local total_count=0 r count label state
+    local total_count=0 r count label state line details=""
     local -a seen_ranks=() count_by_rank=() status_by_rank=() concl_by_rank=()
     terminal_width="$(stty size 2>/dev/null | cut -d' ' -f2)"
     statuses_found=0
@@ -182,8 +202,11 @@ render_once() {
         status_by_rank[$rank]=$status
         concl_by_rank[$rank]=$conclusion
 
-        # Quiet/porcelain modes print only a summary below, not each check.
-        [[ $QUIET -eq 1 || $PORCELAIN -eq 1 ]] && continue
+        # Porcelain emits a single token below; summarized ranks are collapsed
+        # into the summary block below. Only detailed rows are buffered here, so
+        # they can be printed after the summaries.
+        [[ $PORCELAIN -eq 1 ]] && continue
+        summarize_rank "$rank" && continue
 
         icon=$(build_icon "$status" "$conclusion")
 
@@ -211,8 +234,9 @@ render_once() {
         else
             url_separator="  "
         fi
-        printf "%s  %-60s ${CYAN}%4s %3s${RESET}${url_separator}${LIGHT_BLACK}%s${RESET}\n" \
+        printf -v line "%s  %-60s ${CYAN}%4s %3s${RESET}${url_separator}${LIGHT_BLACK}%s${RESET}\n" \
             "$icon" "$name" "$first_duration" "$second_duration" "$details_url"
+        details+=$line
     done <<< "$rows"
 
     if [[ $PORCELAIN -eq 1 ]]; then
@@ -242,9 +266,11 @@ render_once() {
     elif [[ $statuses_found -eq 0 ]]; then
         echo "${GREY}No status${RESET}"
         all_completed=0
-    elif [[ $QUIET -eq 1 ]]; then
-        # One summary line per status present, in the order jq emitted them.
+    else
+        # A summary line per collapsed status (in jq's order), then the detailed
+        # rows buffered above. Which ranks collapse depends on the mode.
         for r in "${seen_ranks[@]}"; do
+            summarize_rank "$r" || continue
             count=${count_by_rank[$r]}
             conclusion=${concl_by_rank[$r]}
             case "$conclusion" in
@@ -261,6 +287,7 @@ render_once() {
                 printf "%s  %d of %d checks %s\n" "$icon" "$count" "$total_count" "$label"
             fi
         done
+        printf '%s' "$details"
     fi
 
     # Erase from the cursor down to clear leftover lines from a taller prior frame.
