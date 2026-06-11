@@ -2,6 +2,7 @@
 WATCH=0
 REVERSE=0
 QUIET=0
+PORCELAIN=0
 GIT_REF_ARGUMENT=""
 
 usage() {
@@ -12,10 +13,11 @@ Show GitHub CI check-run statuses for a commit. Defaults to HEAD (or its
 upstream tracking commit if the local commit isn't pushed).
 
 Options:
-  -w, --watch     Refresh in place every 5s, exiting once all checks complete
-  -r, --reverse   Reverse the sort order
-  -q, --quiet     Print only a one-line summary of the worst check status
-  -h, --help      Show this help and exit
+  -w, --watch      Refresh in place every 5s, exiting once all checks complete
+  -r, --reverse    Reverse the sort order
+  -q, --quiet      Print only a one-line summary of the worst check status
+  -p, --porcelain  Print a single machine-readable state token and exit
+  -h, --help       Show this help and exit
 EOF
 }
 
@@ -24,6 +26,7 @@ for arg in "$@"; do
         --watch|-w) WATCH=1 ;;
         --reverse|-r) REVERSE=1 ;;
         --quiet|-q) QUIET=1 ;;
+        --porcelain|-p) PORCELAIN=1 ;;
         --help|-h) usage; exit 0 ;;
         -*) echo "Unknown option: $arg" >&2; usage >&2; exit 2 ;;
         *) GIT_REF_ARGUMENT="$arg" ;;
@@ -52,12 +55,15 @@ if [[ -z "$COMMIT" ]]; then
   exit 1
 fi
 
-# If no explicit ref was passed and the commit isn't pushed, use upstream instead
+# If no explicit ref was passed and the commit isn't pushed, use upstream instead.
+# UPSTREAM_PREFIX flags that fallback for --porcelain output.
+UPSTREAM_PREFIX=""
 if [[ -z "$GIT_REF_ARGUMENT" ]]; then
     UPSTREAM_COMMIT=$(git rev-parse --verify @{u} 2>/dev/null)
     if [[ -n "$UPSTREAM_COMMIT" && "$COMMIT" != "$UPSTREAM_COMMIT" ]]; then
         if ! git merge-base --is-ancestor "$COMMIT" "$UPSTREAM_COMMIT" 2>/dev/null; then
             COMMIT="$UPSTREAM_COMMIT"
+            UPSTREAM_PREFIX="UPSTREAM_"
         fi
     fi
 fi
@@ -107,8 +113,9 @@ fi
 # all_success and all_completed for the caller to inspect.
 render_once() {
     # Call gh api with pagination and collect JSON
-    local RAW_JSON
+    local RAW_JSON gh_exit
     RAW_JSON=$(gh api --paginate "$API_PATH?per_page=100" -H "Accept: application/vnd.github+json" 2> /dev/null)
+    gh_exit=$?
 
     local rows
     rows=$(
@@ -143,7 +150,7 @@ render_once() {
 
     local rank terminal_width status conclusion name details_url started_at completed_at
     local icon first_duration second_duration url_separator total_seconds seconds minutes
-    local total_count=0 r count label
+    local total_count=0 r count label state
     local -a seen_ranks=() count_by_rank=() status_by_rank=() concl_by_rank=()
     terminal_width="$(stty size 2>/dev/null | cut -d' ' -f2)"
     statuses_found=0
@@ -171,8 +178,8 @@ render_once() {
         status_by_rank[$rank]=$status
         concl_by_rank[$rank]=$conclusion
 
-        # In quiet mode only the summary line below is printed, not each check.
-        [[ $QUIET -eq 1 ]] && continue
+        # Quiet/porcelain modes print only a summary below, not each check.
+        [[ $QUIET -eq 1 || $PORCELAIN -eq 1 ]] && continue
 
         icon=$(build_icon "$status" "$conclusion")
 
@@ -204,7 +211,31 @@ render_once() {
             "$icon" "$name" "$first_duration" "$second_duration" "$details_url"
     done <<< "$rows"
 
-    if [[ $statuses_found -eq 0 ]]; then
+    if [[ $PORCELAIN -eq 1 ]]; then
+        # Single machine-readable state token, worst priority first. An
+        # UPSTREAM_ prefix marks that the upstream commit was checked.
+        if (( gh_exit != 0 )); then
+            state=UNAVAILABLE
+        elif (( ${count_by_rank[8]:-0} > 0 )); then
+            state=ACTION_REQUIRED
+        elif (( ${count_by_rank[7]:-0} > 0 )); then
+            state=FAILURE
+        elif (( ${count_by_rank[5]:-0} > 0 || ${count_by_rank[6]:-0} > 0 )); then
+            state=CANCELLED
+        elif (( statuses_found == 1 && all_completed == 0 )); then
+            state=BUILDING
+        elif (( ${count_by_rank[2]:-0} > 0 )); then
+            state=NEUTRAL
+        elif (( ${count_by_rank[1]:-0} > 0 )); then
+            state=SUCCESS
+        elif (( ${count_by_rank[4]:-0} > 0 )); then
+            state=SKIPPED
+        else
+            state=UNKNOWN
+        fi
+        echo "${UPSTREAM_PREFIX}${state}"
+        [[ $statuses_found -eq 0 ]] && all_completed=0
+    elif [[ $statuses_found -eq 0 ]]; then
         echo "${GREY}No status${RESET}"
         all_completed=0
     elif [[ $QUIET -eq 1 ]]; then
