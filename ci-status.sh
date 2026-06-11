@@ -2,10 +2,27 @@
 WATCH=0
 REVERSE=0
 GIT_REF_ARGUMENT=""
+
+usage() {
+    cat <<EOF
+Usage: ${0##*/} [options] [git-ref]
+
+Show GitHub CI check-run statuses for a commit. Defaults to HEAD (or its
+upstream tracking commit if the local commit isn't pushed).
+
+Options:
+  -w, --watch     Refresh in place every 5s, exiting once all checks complete
+  -r, --reverse   Reverse the sort order
+  -h, --help      Show this help and exit
+EOF
+}
+
 for arg in "$@"; do
     case "$arg" in
         --watch|-w) WATCH=1 ;;
         --reverse|-r) REVERSE=1 ;;
+        --help|-h) usage; exit 0 ;;
+        -*) echo "Unknown option: $arg" >&2; usage >&2; exit 2 ;;
         *) GIT_REF_ARGUMENT="$arg" ;;
     esac
 done
