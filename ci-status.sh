@@ -168,13 +168,9 @@ render_once() {
         ' <<< "$RAW_JSON"
     )
 
-    # In watch mode, reposition the cursor only now that the slow fetch is done,
-    # so the previous frame stays put on screen while the query runs.
-    [[ $WATCH -eq 1 ]] && printf '\033[H'
-
     local rank terminal_width status conclusion name details_url started_at completed_at
     local icon first_duration second_duration url_separator total_seconds seconds minutes
-    local total_count=0 r count label state line details=""
+    local total_count=0 r count label state line details="" out=""
     local -a seen_ranks=() count_by_rank=() status_by_rank=() concl_by_rank=()
     terminal_width="$(stty size 2>/dev/null | cut -d' ' -f2)"
     statuses_found=0
@@ -261,10 +257,10 @@ render_once() {
         else
             state=UNKNOWN
         fi
-        echo "${UPSTREAM_PREFIX}${state}"
+        out="${UPSTREAM_PREFIX}${state}"$'\n'
         [[ $statuses_found -eq 0 ]] && all_completed=0
     elif [[ $statuses_found -eq 0 ]]; then
-        echo "${GREY}No status${RESET}"
+        out="${GREY}No status${RESET}"$'\n'
         all_completed=0
     else
         # A summary line per collapsed status (in jq's order), then the detailed
@@ -282,16 +278,24 @@ render_once() {
             esac
             icon=$(build_icon "${status_by_rank[$r]}" "$conclusion")
             if (( count == total_count )); then
-                printf "%s  All %d checks %s\n" "$icon" "$total_count" "$label"
+                printf -v line "%s  All %d checks %s\n" "$icon" "$total_count" "$label"
             else
-                printf "%s  %d of %d checks %s\n" "$icon" "$count" "$total_count" "$label"
+                printf -v line "%s  %d of %d checks %s\n" "$icon" "$count" "$total_count" "$label"
             fi
+            out+=$line
         done
-        printf '%s' "$details"
+        out+=$details
     fi
 
-    # Erase from the cursor down to clear leftover lines from a taller prior frame.
-    [[ $WATCH -eq 1 ]] && printf '\033[J'
+    if [[ $WATCH -eq 1 ]]; then
+        # Home, then redraw with each line cleared to its end (\033[K) so a
+        # shorter line can't leave stragglers from a longer previous frame, and
+        # clear any lines below a now-shorter frame (\033[J). Nothing is printed
+        # before this point, so the previous frame stays put during the fetch.
+        printf '\033[H%s\033[J' "${out//$'\n'/$'\033[K\n'}"
+    else
+        printf '%s' "$out"
+    fi
 }
 
 if [[ $WATCH -eq 1 ]]; then
